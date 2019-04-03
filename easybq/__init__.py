@@ -6,10 +6,15 @@ from logging import getLogger
 from google.api_core import exceptions
 from google.cloud import bigquery
 from google.cloud.bigquery import SchemaField, TimePartitioning
+from google.cloud.exceptions import NotFound
 
 logger = getLogger('easybq.bq')
 
 CREDENTIALS = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+
+WRITE_APPEND = 'WRITE_APPEND'
+WRITE_TRUNCATE = 'WRITE_TRUNCATE'
+WRITE_EMPTY = 'WRITE_EMPTY'
 
 
 class Client:
@@ -29,20 +34,188 @@ class Client:
     def project(self):
         return self._client.project
 
+    @classmethod
+    def job_config_csv(cls, schema=None, autodetect=False, delimiter=',',
+                       skip_leading_rows=0,
+                       write_disposition=WRITE_APPEND, null_maker=''):
+        job_config = bigquery.LoadJobConfig()
+        job_config.autodetect = autodetect or not bool(schema)
+        if not job_config.autodetect:
+            job_config.schema = schema
+
+        job_config.source_format = bigquery.SourceFormat.CSV
+        job_config.field_delimiter = delimiter
+        job_config.allow_quoted_newlines = True
+        job_config.skip_leading_rows = skip_leading_rows
+        job_config.null_marker = null_maker
+
+        job_config.write_disposition = write_disposition
+
+        return job_config
+
+    def dataset_ref(self, dataset_id):
+        return self._client.dataset(dataset_id)
+
+    def dataset(self, dataset_id):
+        return self._client.get_dataset(self.dataset_ref(dataset_id))
+
+    def table_ref(self, dataset_id, table_id):
+        return self.dataset_ref(dataset_id).table(table_id)
+
+    def table(self, dataset_id, table_id):
+        try:
+            return self.dataset_ref(dataset_id) \
+                .get_table(self.table_ref(dataset_id, table_id))
+
+        except NotFound:
+            return None
+
     def query(self, query):
         job = self._client.query(query)
         for row in job.result():
             yield OrderedDict(row.items())
 
-    def get_schema(self, dataset, table, with_type=False):
-        ds = self._client.dataset(dataset_id=dataset)
-        tbl_ref = ds.table(table_id=table)
-        tbl = self._client.get_table(tbl_ref)
+    def get_schema(self, dataset_id, table_id):
+        return self.table(dataset_id, table_id).schema
 
-        if with_type:
-            return tbl.schema
+    def upload_csv(self, filename, dataset, table,
+                   schema=None,
+                   location=None,
+                   skip_leading_rows=0,
+                   write_disposition=WRITE_APPEND,
+                   null_maker=''):
+        return self._upload_csv(filename, dataset, table,
+                                schema=schema,
+                                location=location,
+                                skip_leading_rows=skip_leading_rows,
+                                write_disposition=write_disposition,
+                                null_maker=null_maker)
+
+    def upload_tsv(self, filename, dataset, table,
+                   schema=None,
+                   location=None,
+                   skip_leading_rows=0,
+                   write_disposition=WRITE_APPEND,
+                   null_maker=''):
+        return self._upload_csv(filename, dataset, table, delimiter='\t',
+                                schema=schema,
+                                location=location,
+                                skip_leading_rows=skip_leading_rows,
+                                write_disposition=write_disposition,
+                                null_maker=null_maker)
+
+    def upload_csv_from_uri(self, uri, dataset, table,
+                            schema=None,
+                            location=None,
+                            skip_leading_rows=0,
+                            write_disposition=WRITE_APPEND,
+                            null_maker=''):
+        return self._upload_csv_from_uri(uri, dataset, table,
+                                         schema=schema,
+                                         location=location,
+                                         skip_leading_rows=skip_leading_rows,
+                                         write_disposition=write_disposition,
+                                         null_maker=null_maker)
+
+    def upload_tsv_from_uri(self, uri, dataset, table,
+                            schema=None,
+                            location=None,
+                            skip_leading_rows=0,
+                            write_disposition=WRITE_APPEND,
+                            null_maker=''):
+        return self._upload_csv_from_uri(uri, dataset, table, delimiter='\t',
+                                         schema=schema,
+                                         location=location,
+                                         skip_leading_rows=skip_leading_rows,
+                                         write_disposition=write_disposition,
+                                         null_maker=null_maker)
+
+    def _upload_csv(self, filename, dataset_id, table_id,
+                    delimiter=',',
+                    schema=None,
+                    location=None,
+                    skip_leading_rows=0,
+                    write_disposition=WRITE_APPEND,
+                    null_maker=''):
+        autodetect = False
+        if schema:
+            if isinstance(schema, dict):
+                schema = [SchemaField(name=s['name'], field_type=s['type'],
+                                      mode=s.get('mode', 'NULLABLE'),
+                                      description=s.get('description'))
+                          for s in schema]
         else:
-            return [t.name for t in tbl.schema]
+            if self.table(dataset_id, table_id) is None:
+                autodetect = True
+            else:
+                schema = self.get_schema(dataset_id, table_id)
+
+        job_config = self.job_config_csv(
+            schema, autodetect, delimiter,
+            skip_leading_rows, write_disposition, null_maker)
+
+        job = None
+        try:
+            with open(filename, 'rb') as f:
+                job = self._client.load_table_from_file(
+                    f, self.table_ref(dataset_id, table_id),
+                    location=location or self.default_location,
+                    job_config=job_config)  # API request
+
+            job.result()  # Waits for table load to complete.
+        except Exception as e:
+            if job:
+                logger.error(f"Errors: \n{job.errors}")
+
+            logger.exception(e)
+            raise
+
+        logger.info(f'Loaded {job.output_rows} rows '
+                    f'into {self.table_ref(dataset_id, table_id)}.')
+        return job.output_rows
+
+    def _upload_csv_from_uri(self, uri, dataset_id, table_id,
+                             delimiter=',',
+                             schema=None,
+                             location=None,
+                             skip_leading_rows=0,
+                             write_disposition=WRITE_APPEND,
+                             null_maker=''):
+        autodetect = False
+        if schema:
+            if isinstance(schema, dict):
+                schema = [SchemaField(name=s['name'], field_type=s['type'],
+                                      mode=s.get('mode', 'NULLABLE'),
+                                      description=s.get('description'))
+                          for s in schema]
+        else:
+            if self.table(dataset_id, table_id) is None:
+                autodetect = True
+            else:
+                schema = self.get_schema(dataset_id, table_id)
+
+        job_config = self.job_config_csv(
+            schema, autodetect, delimiter,
+            skip_leading_rows, write_disposition, null_maker)
+
+        job = None
+        try:
+            job = self._client.load_table_from_uri(
+                uri, self.table_ref(dataset_id, table_id),
+                location=location or self.default_location,
+                job_config=job_config)  # API request
+
+            job.result()  # Waits for table load to complete.
+        except Exception as e:
+            if job:
+                logger.error(f"Errors: \n{job.errors}")
+
+            logger.exception(e)
+            raise
+
+        logger.info(f'Loaded {job.output_rows} rows '
+                    f'into {self.table_ref(dataset_id, table_id)}.')
+        return job.output_rows
 
     def create_update_table(self, dataset, table, schema,
                             time_partitioning=None, clustering_fields=None):
@@ -87,7 +260,7 @@ class Client:
                 add_scm = tbl.schema + add_scm
                 tbl.schema = add_scm
 
-                logger.info(f"Update Table Schema: {self.tblrep(tbl_ref)}, "
+                logger.info(f"Update Table Schema: {tblrep(tbl_ref)}, "
                             f"Schema: {add_scm}")
                 res = self._client.update_table(tbl, ['schema'])
 
@@ -97,7 +270,8 @@ class Client:
             tbl = bigquery.Table(tbl_ref, schema=add_scm)
             if time_partitioning:
                 logger.info(f"TimePartitioning: {time_partitioning}")
-                tbl.time_partitioning = TimePartitioning(field=time_partitioning)
+                tbl.time_partitioning = TimePartitioning(
+                    field=time_partitioning)
 
             if clustering_fields:
                 if not time_partitioning:
@@ -106,7 +280,7 @@ class Client:
                     logger.info(f"Clustering: {clustering_fields}")
                     tbl.clustering_fields = clustering_fields
 
-            logger.info(f"Create Table: {self.tblrep(tbl)}")
+            logger.info(f"Create Table: {tblrep(tbl)}")
 
             res = self._client.create_table(tbl)  # API request
 
@@ -116,73 +290,10 @@ class Client:
                         f"{[(f.name, f.field_type) for f in tbl.schema]}")
         return res
 
-    def upload_csv(self, dataset, table, filename, location=None,
-                   skip_leading_rows=1, autodetect=False,
-                   write_disposition=None):
-        """
-        *Append* csv data into the table
-        :param dataset:
-        :param table:
-        :param filename: Absolute path of csv file
-        :param skip_leading_rows:
-        :param location:
-        :param autodetect:
-        :param write_disposition:
-        :return:
-        """
-        with open(filename, 'r') as f:
-            n_records = len(f.readlines()) - skip_leading_rows
-            logger.info(f"Import {n_records} records.")
-
-        if not n_records:
-            return 0
-
-        location = location or self.default_location
-
-        ds = self._client.dataset(dataset_id=dataset)
-        tbl_ref = ds.table(table_id=table)
-
-        job_config = bigquery.LoadJobConfig()
-
-        job_config.source_format = bigquery.SourceFormat.CSV
-        job_config.allow_quoted_newlines = True
-        job_config.skip_leading_rows = skip_leading_rows
-
-        if autodetect:
-            job_config.autodetect = autodetect
-        else:
-            job_config.schema = self.get_schema(dataset, table, with_type=True)
-
-        if write_disposition:
-            job_config.write_disposition = write_disposition
-
-        job = None
-        try:
-            if autodetect:
-                logger.info(f'Upload csv {filename} into {self.tblrep(tbl_ref)}'
-                            f' with autodetect.')
-            else:
-                logger.info(f'Upload csv {filename} into {self.tblrep(tbl_ref)}'
-                            f' with schema: {job_config.schema}.')
-            with open(filename, 'rb') as f:
-                job = self._client.load_table_from_file(
-                    f,
-                    tbl_ref,
-                    location=location,
-                    job_config=job_config)  # API request
-
-            job.result()  # Waits for table load to complete.
-        except Exception as e:
-            if job:
-                logger.error(f"Errors: \n{job.errors}")
-
-            logger.exception(e)
-            raise
-
-        logger.info(f'Loaded {job.output_rows} rows '
-                    f'into {self.tblrep(tbl_ref)}.')
-        return job.output_rows
-
     @classmethod
     def tblrep(cls, tbl):
-        return f'{tbl.project}.{tbl.dataset_id}.{tbl.table_id}'
+        return tblrep(tbl)
+
+
+def tblrep(tbl):
+    return f'{tbl.project}.{tbl.dataset_id}.{tbl.table_id}'
