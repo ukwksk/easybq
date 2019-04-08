@@ -8,7 +8,7 @@ from google.cloud import bigquery
 from google.cloud.bigquery import SchemaField, TimePartitioning
 from google.cloud.exceptions import NotFound
 
-logger = getLogger('easybq.bq')
+logger = getLogger('easybq')
 
 CREDENTIALS = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
 
@@ -166,8 +166,8 @@ class Client:
         except Exception as e:
             if job:
                 logger.error(f"Errors: \n{job.errors}")
+                return job
 
-            logger.exception(e)
             raise
 
         logger.info(f'Loaded {job.output_rows} rows '
@@ -209,13 +209,13 @@ class Client:
         except Exception as e:
             if job:
                 logger.error(f"Errors: \n{job.errors}")
+                return job
 
-            logger.exception(e)
             raise
 
         logger.info(f'Loaded {job.output_rows} rows '
                     f'into {self.table_ref(dataset_id, table_id)}.')
-        return job.output_rows
+        return job
 
     def create_update_table(self, dataset, table, schema,
                             time_partitioning=None, clustering_fields=None):
