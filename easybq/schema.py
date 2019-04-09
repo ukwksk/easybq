@@ -3,6 +3,10 @@ import json
 
 from google.cloud import bigquery
 
+NULLABLE = "NULLABLE"
+REQUIRED = "REQUIRED"
+REPEATED = "REPEATED"
+
 
 def json_file2schema(filename):
     with open(filename) as f:
@@ -14,6 +18,6 @@ def json_file2schema(filename):
 def json2schema(schema):
     schema = [bigquery.SchemaField(
         name=s['name'], field_type=s['type'],
-        mode=s.get('mode'), description=s.get('description')
+        mode=s.get('mode', NULLABLE), description=s.get('description')
     ) for s in schema]
     return schema
