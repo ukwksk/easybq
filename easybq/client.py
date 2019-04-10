@@ -175,13 +175,7 @@ class Client:
                              write_disposition=WRITE_APPEND,
                              null_maker=''):
         autodetect = False
-        if schema:
-            if isinstance(schema, dict):
-                schema = [SchemaField(name=s['name'], field_type=s['type'],
-                                      mode=s.get('mode', 'NULLABLE'),
-                                      description=s.get('description'))
-                          for s in schema]
-        else:
+        if not schema:
             if self.table(dataset_id, table_id) is None:
                 autodetect = True
             else:
@@ -216,16 +210,7 @@ class Client:
         :param dataset:
         :param table:
         :param filename: Absolute path of csv file
-        :param schema: List<Dict>
-            See: /path/to/site-packages/google/cloud/bigquery/schema.py
-            name (str): the name of the field.
-            field_type (str): STRING, INTEGER, FLOAT, BOOLEAN,
-                                TIMESTAMP, DATE, DATETIME and more.
-                See: https://cloud.google.com/bigquery/docs/reference/rest/v2/tables#schema.fields.type
-            mode (str): NULLABLE, REQUIRED and REPEATED
-            description (Optional[str]):description for the field.
-            fields (Tuple[:class:`~google.cloud.bigquery.schema.SchemaField`]):
-                subfields (requires ``field_type`` of 'RECORD').
+        :param schema: List<SchemaField>
         :param time_partitioning:
         :param clustering_fields:
         :return:
@@ -240,8 +225,8 @@ class Client:
             tbl = self._client.get_table(tbl_ref)
             logger.warning(f"*** {dataset}.{table} already exists. "
                            f"Existing fields DO NOT updated. ***")
-            add_scm = [SchemaField(**s) for s in schema
-                       if s['name'] not in [e.name for e in tbl.schema]]
+            add_scm = [s for s in schema
+                       if s.name not in [e.name for e in tbl.schema]]
 
             if not add_scm:
                 logger.info(f"Nothing to Append.")
@@ -259,7 +244,7 @@ class Client:
 
         except exceptions.NotFound:
             # https://cloud.google.com/bigquery/docs/tables#creating_an_empty_table_with_a_schema_definition
-            add_scm = [SchemaField(**s) for s in schema]
+            add_scm = schema
             tbl = bigquery.Table(tbl_ref, schema=add_scm)
             if time_partitioning:
                 logger.info(f"TimePartitioning: {time_partitioning}")
