@@ -5,8 +5,8 @@ from logging import getLogger
 
 from google.api_core import exceptions
 from google.cloud import bigquery
-from google.cloud.bigquery import SchemaField, TimePartitioning
-from google.cloud.exceptions import NotFound
+from google.cloud.bigquery import TimePartitioning
+from google.cloud.exceptions import NotFound, BadRequest
 
 logger = getLogger('easybq')
 
@@ -71,8 +71,20 @@ class Client:
 
     def query(self, query):
         job = self._client.query(query)
+
         for row in job.result():
             yield OrderedDict(row.items())
+
+    def is_valid_query(self, query):
+        job_config = bigquery.QueryJobConfig()
+        job_config.dry_run = True
+        job_config.use_query_cache = False
+
+        try:
+            job = self._client.query(query, job_config=job_config)
+            return job.state == "DONE", job
+        except BadRequest as e:
+            return False, e
 
     def get_schema(self, dataset_id, table_id):
         return self.table(dataset_id, table_id).schema
@@ -267,6 +279,31 @@ class Client:
             logger.info(f"Renewed Table: {dataset}.{table}: "
                         f"{[(f.name, f.field_type) for f in tbl.schema]}")
         return res
+
+    def create_view(self, dataset, table, sql, exist_ok=False):
+        tbl = self.table(dataset, table)
+        if tbl and not exist_ok:
+            raise AttributeError(
+                f"{self.project}.{dataset}.{table} already exists.")
+
+        if not tbl:
+            tbl = bigquery.Table(self.table_ref(dataset, table))
+            tbl.view_query = sql
+            tbl = self._client.create_table(tbl)
+        else:
+            tbl.view_query = sql
+            self._client.update_table(tbl, ['view_query'])
+
+        return self.table(dataset, table)
+
+    def update_schema(self, dataset, table, schema):
+        tbl = self.table(dataset, table)
+        if not tbl:
+            raise AttributeError(
+                f"{self.project}.{dataset}.{table} is not found.")
+
+        tbl.schema = schema
+        return self._client.update_table(tbl, ['schema'])
 
 
 def tblrep(tbl):

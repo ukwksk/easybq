@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
+import os
+
 from setuptools import find_packages, setup
 
-version = "0.1.2"
+version = "0.2.0"
 
-with open('README.md') as f:
+with open(os.path.join(os.path.dirname(__file__), 'README.md')) as f:
     readme = f.read()
 
 setup(
