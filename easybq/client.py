@@ -27,7 +27,8 @@ class Client:
     def __init__(self, credentials=None, default_location='US'):
         logger.debug(f"CREDENTIALS: {credentials}")
         self._credentials = credentials or CREDENTIALS
-        self._client = bigquery.Client.from_service_account_json(credentials)
+        self._client = bigquery.Client\
+            .from_service_account_json(self._credentials)
         self.default_location = default_location
 
     @property
