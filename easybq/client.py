@@ -284,7 +284,8 @@ class Client:
                         f"{[(f.name, f.field_type) for f in tbl.schema]}")
         return res
 
-    def create_view(self, dataset, table, sql, exist_ok=False):
+    def create_view(self, dataset, table, sql,
+                    description=None, exist_ok=False):
         tbl = self.table(dataset, table)
         if tbl and not exist_ok:
             raise AttributeError(
@@ -297,6 +298,11 @@ class Client:
         else:
             tbl.view_query = sql
             self._client.update_table(tbl, ['view_query'])
+
+        if description:
+            tbl = bigquery.Table(self.table_ref(dataset, table))
+            tbl.description = description
+            self._client.update_table(tbl, ['description'])
 
         return self.table(dataset, table)
 
