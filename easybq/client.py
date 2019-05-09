@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-import os
 from collections import OrderedDict
 from logging import getLogger
 
 from google.api_core import exceptions
 from google.cloud import bigquery
 from google.cloud.bigquery import TimePartitioning
-from google.cloud.exceptions import NotFound, BadRequest
+from google.cloud.exceptions import BadRequest, Forbidden, NotFound
 
 logger = getLogger('easybq')
 
@@ -89,6 +88,8 @@ class Client:
             return job.state == "DONE", job
         except BadRequest as e:
             return False, e
+        except Forbidden as e:
+            return None, e
 
     def get_schema(self, dataset_id, table_id):
         return self.table(dataset_id, table_id).schema
