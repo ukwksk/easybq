@@ -10,8 +10,6 @@ from google.cloud.exceptions import NotFound, BadRequest
 
 logger = getLogger('easybq')
 
-CREDENTIALS = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
-
 WRITE_APPEND = 'WRITE_APPEND'
 WRITE_TRUNCATE = 'WRITE_TRUNCATE'
 WRITE_EMPTY = 'WRITE_EMPTY'
@@ -24,11 +22,16 @@ class Client:
         bigquery.jobs.create
     """
 
-    def __init__(self, credentials=None, default_location='US'):
-        logger.debug(f"CREDENTIALS: {credentials}")
-        self._credentials = credentials or CREDENTIALS
-        self._client = bigquery.Client\
-            .from_service_account_json(self._credentials)
+    def __init__(self, service_account_json=None,
+                 credentials=None, project=None,
+                 default_location='US'):
+        logger.debug(f"CREDENTIALS: {service_account_json}")
+        if service_account_json:
+            self._client = bigquery.Client \
+                .from_service_account_json(service_account_json)
+        else:
+            self._client = \
+                bigquery.Client(credentials=credentials, project=project)
         self.default_location = default_location
 
     @property
