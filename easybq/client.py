@@ -25,6 +25,10 @@ class Client:
                  credentials=None, project=None,
                  default_location='US'):
         logger.debug(f"CREDENTIALS: {service_account_json}")
+
+        self._service_account_json = service_account_json
+        self._credentials = credentials
+
         if service_account_json:
             self._client = bigquery.Client \
                 .from_service_account_json(service_account_json)
@@ -145,6 +149,51 @@ class Client:
                                          skip_leading_rows=skip_leading_rows,
                                          write_disposition=write_disposition,
                                          null_maker=null_maker)
+
+    def upload_csv_via_gcs(self, filename, dataset, table, gcs_bucket, gcs_blob,
+                           schema=None,
+                           location=None,
+                           skip_leading_rows=0,
+                           write_disposition=WRITE_APPEND,
+                           null_maker=''):
+
+        uri = self._upload_to_gcs(filename, gcs_bucket, gcs_blob)
+        return self.upload_csv_from_uri(uri, dataset, table,
+                                        schema=schema,
+                                        location=location,
+                                        skip_leading_rows=skip_leading_rows,
+                                        write_disposition=write_disposition,
+                                        null_maker=null_maker)
+
+    def upload_tsv_via_gcs(self, filename, dataset, table, gcs_bucket, gcs_blob,
+                           schema=None,
+                           location=None,
+                           skip_leading_rows=0,
+                           write_disposition=WRITE_APPEND,
+                           null_maker=''):
+        uri = self._upload_to_gcs(filename, gcs_bucket, gcs_blob)
+        return self.upload_tsv_from_uri(uri, dataset, table,
+                                        schema=schema,
+                                        location=location,
+                                        skip_leading_rows=skip_leading_rows,
+                                        write_disposition=write_disposition,
+                                        null_maker=null_maker)
+
+    def _upload_to_gcs(self, filename, gcs_bucket, gcs_blob):
+        from google.cloud import storage
+
+        if self._service_account_json:
+            client = storage.Client \
+                .from_service_account_json(self._service_account_json)
+        else:
+            client = \
+                storage.Client(credentials=self._credentials,
+                               project=self.project)
+
+        client.bucket(gcs_bucket).blob(gcs_blob).upload_from_filename(filename)
+
+        uri = f'gs://{gcs_bucket}/{gcs_blob}'
+        return uri
 
     def _upload_csv(self, filename, dataset_id, table_id,
                     delimiter=',',

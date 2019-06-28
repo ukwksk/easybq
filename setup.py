@@ -3,7 +3,7 @@ import os
 
 from setuptools import find_packages, setup
 
-version = "0.2.2"
+version = "0.3.0"
 
 with open(os.path.join(os.path.dirname(__file__), 'README.md')) as f:
     readme = f.read()
@@ -16,6 +16,7 @@ setup(
               if package.startswith('easybq')],
     description="BigQuery Wrapper",
     long_description=readme,
+    long_description_content_type='text/markdown',
     keywords="Google BigQuery",
     author='ukwksk',
     author_email='pylibs@ukwksk.co',
@@ -25,6 +26,9 @@ setup(
     install_requires=[
         'google-cloud-bigquery',
     ],
+    extras_require={
+        'gcs': ['google-cloud-storage']
+    },
     license="MIT",
     classifiers=[
         'Programming Language :: Python :: 3.6',
